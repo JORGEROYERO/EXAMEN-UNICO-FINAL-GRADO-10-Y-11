@@ -93,7 +93,7 @@
 // ===================== CONFIGURACIÓN =====================
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwMrKr8zH4a6saHbOvpy4MSwxh7_BkCoIi03_D_nyTF3YeVnP-Gz8psXTc4JJHhs_IjXg/exec";
 const ASIGNATURA = "Examen unico 2026";
-const CLAVE_LOCAL = "examen_unico_2026_v2_";
+const CLAVE_LOCAL = "examen_unico_2026_v3_";
 
 // Listas tomadas del archivo NOTAS_PERIODO_3.xlsx (periodo 3 de 2026).
 const ESTUDIANTES_POR_CURSO = {
@@ -331,11 +331,11 @@ function pantallaInstrucciones() {
     '<div class="tarjeta"><h2>' + ex.titulo + '</h2>' +
     '<p class="aviso">' + estado.nombre + ', curso ' + estado.curso + '</p>' +
     '<p>Temas: ' + ex.temas + '.</p>' +
-    '<p>El examen tiene ' + n + ' preguntas de selección múltiple con una sola respuesta correcta. Puedes volver a una pregunta con los botones numerados mientras te falten preguntas por responder. ' +
+    '<p>El examen tiene ' + n + ' preguntas de selección múltiple con una sola respuesta correcta. Antes de terminar puedes volver a cualquier pregunta con los botones numerados y cambiar tu respuesta. ' +
     (estado.grado === "10" ? 'En los triángulos, el lado o el ángulo que debes resolver aparece en color rojo. ' : '') +
     'La nota va de 0.0 a 5.0.</p>' +
     (estado.grado === "11" ? '<div class="alerta">Reglas de apoyo: si f(x) = x<sup>n</sup>, entonces f\'(x) = n·x<sup>n−1</sup>; la derivada de una constante es 0; si f(x) = u · v, entonces f\'(x) = u\' · v + u · v\'. Para hallar el valor de una función cuando x = 2, reemplaza la x por 2 y resuelve.</div>' : '') +
-    '<div class="alerta">Tienes un solo intento. Al elegir una respuesta pasas a la siguiente pregunta. Cuando respondas la última pregunta, el examen se califica y se envía al profesor automáticamente, y ya no podrás cambiar tus respuestas.</div>' +
+    '<div class="alerta">Tienes un solo intento. En cada pregunta elige tu respuesta y pulsa "Confirmar y continuar". En la última pregunta, después de elegir, pulsa "Terminar examen": en ese momento el examen se califica y se envía al profesor, y ya no podrás cambiar tus respuestas.</div>' +
     '<div class="botones"><button class="btn btn-secundario" id="volver">Volver</button><button class="btn btn-primario" id="empezar">Empezar el examen</button></div></div>';
   document.getElementById("volver").onclick = pantallaInicio;
   document.getElementById("empezar").onclick = function () {
@@ -370,48 +370,44 @@ function pantallaPregunta() {
     '<div class="enunciado">' + (i + 1) + '. ' + q.t + '</div>' +
     (q.fig ? '<div class="figura">' + q.fig + '</div>' : '') +
     ops +
+    '<p id="mensaje" class="aviso" style="color:var(--rojo);font-weight:600">' + (estado.aviso || "") + '</p>' +
     '<div class="botones">' +
     '<button class="btn btn-secundario" id="ant"' + (i === 0 ? ' disabled style="visibility:hidden"' : '') + '>Anterior</button>' +
-    (i < n - 1 ? '<button class="btn btn-primario" id="sig">Siguiente</button>' : '') +
+    (i < n - 1
+      ? '<button class="btn btn-primario" id="confirmar"' + (estado.resp[i] === null ? ' disabled' : '') + '>Confirmar y continuar</button>'
+      : '<button class="btn btn-rojo" id="confirmar"' + (estado.resp[i] === null ? ' disabled' : '') + '>Terminar examen</button>') +
     '</div></div>';
+  estado.aviso = "";
   app().querySelectorAll(".navegador button").forEach(function (b) {
     b.onclick = function () { estado.actual = +b.dataset.k; guardarProgreso(); pantallaPregunta(); };
   });
   app().querySelectorAll(".opcion").forEach(function (b) {
     b.onclick = function () {
-      if (estado.bloqueado) return;
       estado.resp[i] = +b.dataset.o;
-      estado.bloqueado = true;
+      guardarProgreso();
       app().querySelectorAll(".opcion").forEach(function (x) { x.classList.toggle("elegida", x === b); });
-      setTimeout(function () {
-        estado.bloqueado = false;
-        let sig = -1;
-        for (let k = 1; k <= n; k++) { const j = (i + k) % n; if (estado.resp[j] === null) { sig = j; break; } }
-        if (sig === -1) { finalizar(); return; }
-        estado.actual = sig; guardarProgreso(); pantallaPregunta();
-      }, 350);
+      const c = document.getElementById("confirmar");
+      if (c) c.disabled = false;
+      const m = document.getElementById("mensaje");
+      if (m) m.textContent = "";
     };
   });
+  document.getElementById("confirmar").onclick = function () {
+    if (estado.resp[i] === null) return;
+    if (i < n - 1) { estado.actual = i + 1; guardarProgreso(); pantallaPregunta(); return; }
+    const faltan = [];
+    estado.resp.forEach(function (r, k) { if (r === null) faltan.push(k + 1); });
+    if (faltan.length) {
+      estado.actual = faltan[0] - 1; estado.aviso = "Antes de terminar debes responder: " + faltan.join(", ") + ".";
+      guardarProgreso(); pantallaPregunta(); return;
+    }
+    this.disabled = true;
+    this.textContent = "Enviando...";
+    finalizar();
+  };
   const ant = document.getElementById("ant");
   if (ant) ant.onclick = function () { estado.actual--; guardarProgreso(); pantallaPregunta(); };
-  const sig = document.getElementById("sig");
-  if (sig) sig.onclick = function () { estado.actual++; guardarProgreso(); pantallaPregunta(); };
   window.scrollTo(0, 0);
-}
-
-function pantallaConfirmar() {
-  const n = estado.resp.length;
-  const faltan = [];
-  estado.resp.forEach(function (r, k) { if (r === null) faltan.push(k + 1); });
-  app().innerHTML =
-    '<div class="tarjeta"><h2>¿Terminar el examen?</h2>' +
-    (faltan.length
-      ? '<div class="alerta">Te faltan ' + faltan.length + ' de ' + n + ' preguntas por responder: ' + faltan.join(", ") + '. Las preguntas sin responder cuentan como incorrectas.</div>'
-      : '<p>Respondiste las ' + n + ' preguntas.</p>') +
-    '<p>Después de terminar no podrás cambiar tus respuestas ni presentar el examen otra vez.</p>' +
-    '<div class="botones"><button class="btn btn-secundario" id="revisar">Revisar mis respuestas</button><button class="btn btn-rojo" id="si">Sí, terminar</button></div></div>';
-  document.getElementById("revisar").onclick = function () { estado.actual = faltan.length ? faltan[0] - 1 : 0; pantallaPregunta(); };
-  document.getElementById("si").onclick = finalizar;
 }
 
 function finalizar() {
