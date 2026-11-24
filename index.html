@@ -62,6 +62,18 @@
   .marcas .ok { background: var(--verde-claro); color: var(--verde); }
   .marcas .no { background: var(--rojo-claro); color: var(--rojo); }
   .marcas .nr { background: #eceef5; color: var(--gris); }
+  .revision { border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; border: 1.5px solid #d9dcec; }
+  .revision.ok { background: #f1fbf5; border-color: #9fd8b5; }
+  .revision.no { background: #fdf3f0; border-color: #efb3a3; }
+  .revision .cab { font-weight: 700; margin-bottom: 4px; color: var(--navy); }
+  .revision .enunciado { font-size: 16px; }
+  .op-rev { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 2px solid #e1e3ee; border-radius: 10px; padding: 8px 12px; margin-bottom: 7px; background: #fff; font-size: 16px; }
+  .op-rev .letra { flex: 0 0 28px; height: 28px; border-radius: 50%; background: #c8cbe0; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+  .op-rev.correcta { border-color: var(--verde); background: var(--verde-claro); }
+  .op-rev.correcta .letra { background: var(--verde); }
+  .op-rev.errada { border-color: var(--rojo); background: var(--rojo-claro); }
+  .op-rev.errada .letra { background: var(--rojo); }
+  .marca-r { margin-left: auto; font-size: 13px; font-weight: 700; color: var(--navy); }
   footer { text-align: center; font-size: 13px; color: var(--gris); padding: 10px; }
 </style>
 </head>
@@ -81,7 +93,7 @@
 // ===================== CONFIGURACIÓN =====================
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwMrKr8zH4a6saHbOvpy4MSwxh7_BkCoIi03_D_nyTF3YeVnP-Gz8psXTc4JJHhs_IjXg/exec";
 const ASIGNATURA = "Examen unico 2026";
-const CLAVE_LOCAL = "examen_unico_2026_v1_";
+const CLAVE_LOCAL = "examen_unico_2026_v2_";
 
 // Listas tomadas del archivo NOTAS_PERIODO_3.xlsx (periodo 3 de 2026).
 const ESTUDIANTES_POR_CURSO = {
@@ -246,7 +258,8 @@ function enviarRegistro(r, alTerminar) {
     "&inicio=" + encodeURIComponent(r.inicio) +
     "&fin=" + encodeURIComponent(r.fin) +
     "&duracion=" + encodeURIComponent(r.duracion) +
-    "&total=" + r.total;
+    "&total=" + r.total +
+    "&id=" + encodeURIComponent(r.id || "");
   r.marcas.forEach(function (m, i) { url += "&p" + (i + 1) + "=" + encodeURIComponent(m); });
   const beacon = new Image();
   let hecho = false;
@@ -318,11 +331,11 @@ function pantallaInstrucciones() {
     '<div class="tarjeta"><h2>' + ex.titulo + '</h2>' +
     '<p class="aviso">' + estado.nombre + ', curso ' + estado.curso + '</p>' +
     '<p>Temas: ' + ex.temas + '.</p>' +
-    '<p>El examen tiene ' + n + ' preguntas de selección múltiple con una sola respuesta correcta. Puedes moverte entre las preguntas con los botones numerados y cambiar tus respuestas antes de terminar. ' +
+    '<p>El examen tiene ' + n + ' preguntas de selección múltiple con una sola respuesta correcta. Puedes volver a una pregunta con los botones numerados mientras te falten preguntas por responder. ' +
     (estado.grado === "10" ? 'En los triángulos, el lado o el ángulo que debes resolver aparece en color rojo. ' : '') +
     'La nota va de 0.0 a 5.0.</p>' +
     (estado.grado === "11" ? '<div class="alerta">Reglas de apoyo: si f(x) = x<sup>n</sup>, entonces f\'(x) = n·x<sup>n−1</sup>; la derivada de una constante es 0; si f(x) = u · v, entonces f\'(x) = u\' · v + u · v\'. Para hallar el valor de una función cuando x = 2, reemplaza la x por 2 y resuelve.</div>' : '') +
-    '<div class="alerta">Tienes un solo intento. Cuando pulses "Terminar examen" tu nota se envía al profesor y no podrás presentarlo de nuevo.</div>' +
+    '<div class="alerta">Tienes un solo intento. Al elegir una respuesta pasas a la siguiente pregunta. Cuando respondas la última pregunta, el examen se califica y se envía al profesor automáticamente, y ya no podrás cambiar tus respuestas.</div>' +
     '<div class="botones"><button class="btn btn-secundario" id="volver">Volver</button><button class="btn btn-primario" id="empezar">Empezar el examen</button></div></div>';
   document.getElementById("volver").onclick = pantallaInicio;
   document.getElementById("empezar").onclick = function () {
@@ -359,20 +372,30 @@ function pantallaPregunta() {
     ops +
     '<div class="botones">' +
     '<button class="btn btn-secundario" id="ant"' + (i === 0 ? ' disabled style="visibility:hidden"' : '') + '>Anterior</button>' +
-    (i < n - 1 ? '<button class="btn btn-primario" id="sig">Siguiente</button>' : '<button class="btn btn-rojo" id="terminar">Terminar examen</button>') +
+    (i < n - 1 ? '<button class="btn btn-primario" id="sig">Siguiente</button>' : '') +
     '</div></div>';
   app().querySelectorAll(".navegador button").forEach(function (b) {
     b.onclick = function () { estado.actual = +b.dataset.k; guardarProgreso(); pantallaPregunta(); };
   });
   app().querySelectorAll(".opcion").forEach(function (b) {
-    b.onclick = function () { estado.resp[i] = +b.dataset.o; guardarProgreso(); pantallaPregunta(); };
+    b.onclick = function () {
+      if (estado.bloqueado) return;
+      estado.resp[i] = +b.dataset.o;
+      estado.bloqueado = true;
+      app().querySelectorAll(".opcion").forEach(function (x) { x.classList.toggle("elegida", x === b); });
+      setTimeout(function () {
+        estado.bloqueado = false;
+        let sig = -1;
+        for (let k = 1; k <= n; k++) { const j = (i + k) % n; if (estado.resp[j] === null) { sig = j; break; } }
+        if (sig === -1) { finalizar(); return; }
+        estado.actual = sig; guardarProgreso(); pantallaPregunta();
+      }, 350);
+    };
   });
   const ant = document.getElementById("ant");
   if (ant) ant.onclick = function () { estado.actual--; guardarProgreso(); pantallaPregunta(); };
   const sig = document.getElementById("sig");
   if (sig) sig.onclick = function () { estado.actual++; guardarProgreso(); pantallaPregunta(); };
-  const ter = document.getElementById("terminar");
-  if (ter) ter.onclick = pantallaConfirmar;
   window.scrollTo(0, 0);
 }
 
@@ -403,11 +426,13 @@ function finalizar() {
   });
   const finMs = Date.now();
   const r = {
+    id: generarFingerprint() + "-" + Date.now().toString(36),
     nombre: estado.nombre, curso: estado.curso, grado: estado.grado, total: n,
     correctas: correctas, incorrectas: n - correctas,
     porcentaje: Math.round(100 * correctas / n),
     nota: Math.round(50 * correctas / n) / 10,
     marcas: marcas,
+    resp: estado.resp.slice(),
     inicio: estado.inicio, fin: ahora(), fecha: ahora(),
     duracion: Math.max(0, Math.round((finMs - (estado.inicioMs || finMs)) / 60000))
   };
@@ -420,20 +445,31 @@ function finalizar() {
 }
 
 function pantallaResultado(r, enviado) {
-  const celdas = r.marcas.map(function (m, k) {
-    const cls = m.charAt(0) === "✓" ? "ok" : (m.charAt(0) === "✗" ? "no" : "nr");
-    const s = cls === "ok" ? "✓" : (cls === "no" ? "✗" : "−");
-    return '<span class="' + cls + '">' + (k + 1) + '<br>' + s + '</span>';
-  }).join("");
+  const ex = EXAMENES[r.grado];
+  let rev = '';
+  ex.preguntas.forEach(function (q, k) {
+    const elegida = r.resp ? r.resp[k] : null;
+    const bien = elegida === q.ok;
+    let ops = '';
+    q.op.forEach(function (o, j) {
+      let cls = '', marca = '';
+      if (j === q.ok) { cls = ' correcta'; marca = '<span class="marca-r">Respuesta correcta</span>'; }
+      if (j === elegida && !bien) { cls = ' errada'; marca = '<span class="marca-r">Tu respuesta</span>'; }
+      if (j === elegida && bien) { marca = '<span class="marca-r">Tu respuesta, correcta</span>'; }
+      ops += '<div class="op-rev' + cls + '"><span class="letra">' + LETRAS[j] + '</span><span>' + o + '</span>' + marca + '</div>';
+    });
+    rev += '<div class="revision ' + (bien ? 'ok' : 'no') + '"><div class="cab">' + (k + 1) + '. ' + (bien ? '✓ Correcta' : (elegida === null ? '− Sin responder' : '✗ Incorrecta')) + '</div>' +
+      '<div class="enunciado">' + q.t + '</div>' + (q.fig ? '<div class="figura">' + q.fig + '</div>' : '') + ops + '</div>';
+  });
   app().innerHTML =
-    '<div class="tarjeta"><h2>' + EXAMENES[r.grado].titulo + '</h2>' +
+    '<div class="tarjeta"><h2>' + ex.titulo + '</h2>' +
     '<p class="aviso">' + r.nombre + ', curso ' + r.curso + '. Terminado: ' + r.fin + '</p>' +
     '<div class="nota-grande"><div class="valor">' + r.nota.toFixed(1) + '</div><div class="sobre">sobre 5.0</div></div>' +
-    '<div class="resumen"><div><div class="num">' + r.correctas + '</div>correctas</div><div><div class="num">' + r.incorrectas + '</div>incorrectas o sin responder</div><div><div class="num">' + r.porcentaje + '%</div>de aciertos</div></div>' +
-    '<p class="aviso">Preguntas acertadas (✓) y no acertadas (✗):</p><div class="marcas">' + celdas + '</div>' +
+    '<div class="resumen"><div><div class="num">' + r.correctas + '</div>correctas</div><div><div class="num">' + r.incorrectas + '</div>incorrectas</div><div><div class="num">' + r.porcentaje + '%</div>de aciertos</div></div>' +
     '<p id="estadoEnvio" class="aviso">' + (enviado ? 'Tu resultado fue enviado al profesor.' : 'Enviando tu resultado al profesor...') + '</p>' +
     (enviado ? '' : '<button class="btn btn-secundario" id="reenviar">Reenviar resultado</button>') +
-    '</div>';
+    '</div>' +
+    '<div class="tarjeta"><h2>Retroalimentación</h2><p class="aviso">En verde está la respuesta correcta de cada pregunta. Si te equivocaste, tu respuesta aparece en rojo.</p>' + rev + '</div>';
   const re = document.getElementById("reenviar");
   if (re) re.onclick = function () {
     document.getElementById("estadoEnvio").textContent = "Enviando tu resultado al profesor...";
